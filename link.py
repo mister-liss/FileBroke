@@ -22,6 +22,10 @@ import argparse, errno, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+# global state for test-injected input
+_TEST_INPUT_LINES = None
+_TEST_INPUT_IDX = 0
+
 # -------------------- logging & io --------------------
 def log(msg: str = ""):
     sys.stderr.write(msg + "\n"); sys.stderr.flush()
@@ -30,13 +34,39 @@ def json_out(obj: Dict[str, Any]):
     sys.stdout.write(json.dumps(obj, default=str) + "\n"); sys.stdout.flush()
 
 def read_choice_from_tty(prompt: str) -> str:
+    """
+    Normal mode:
+      - read from /dev/tty (or fallback to input()).
+
+    Test mode:
+      - if FILEBROKE_TEST_INPUT is set, consume lines from there instead.
+    """
+    global _TEST_INPUT_LINES, _TEST_INPUT_IDX
+
+    test_data = os.getenv("FILEBROKE_TEST_INPUT")
+    if test_data is not None:
+        if _TEST_INPUT_LINES is None:
+            _TEST_INPUT_LINES = test_data.split("\n")
+            _TEST_INPUT_IDX = 0
+
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+
+        if _TEST_INPUT_IDX >= len(_TEST_INPUT_LINES):
+            return ""  # simulate empty
+        line = _TEST_INPUT_LINES[_TEST_INPUT_IDX]
+        _TEST_INPUT_IDX += 1
+        return line.strip().lower()
+
+    # normal interactive path
     try:
         with open("/dev/tty", "r") as tty:
-            sys.stderr.write(prompt); sys.stderr.flush()
-            return tty.readline().strip()
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+            return tty.readline().strip().lower()
     except Exception:
         try:
-            return input(prompt).strip()
+            return input(prompt).strip().lower()
         except EOFError:
             return ""
 
